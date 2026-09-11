@@ -35,6 +35,7 @@ const pauseButton = document.querySelector("#pause-button");
 const speedSelect = document.querySelector("#speed-select");
 const runDot = document.querySelector("#run-dot");
 const runLabel = document.querySelector("#run-label");
+const prototypeTag = document.querySelector(".prototype-tag");
 const eventList = document.querySelector("#event-list");
 const eventCount = document.querySelector("#event-count");
 const signalSymbol = document.querySelector("#signal-symbol");
@@ -82,6 +83,7 @@ const inspectorStatusParts = Object.fromEntries(
 const agents = new Map();
 const eventQueue = [];
 const observedEvents = [];
+const seenEventIds = new Set();
 let runStartedAt = 0;
 let receivedEvents = 0;
 let currentRunId = null;
@@ -89,6 +91,7 @@ let selectedAgentId = null;
 let processingEvent = false;
 let playbackPaused = false;
 let playbackSpeed = 1;
+let demoMode = false;
 
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
@@ -1259,7 +1262,13 @@ function showEvent(event) {
   if (event.type === "run_started" && event.run_id !== currentRunId) {
     currentRunId = event.run_id;
     resetView(event.metadata?.question || "Agent workflow");
-    missionEyebrow.textContent = `Live run · ${event.run_id}`;
+    demoMode = event.metadata?.demo === true;
+    prototypeTag.textContent = demoMode ? "recorded demo" : "live adapter";
+    missionEyebrow.textContent = `${demoMode ? "Recorded demo" : "Live run"} · ${event.run_id}`;
+    if (demoMode) {
+      playbackSpeed = 2;
+      speedSelect.value = "2";
+    }
     runStartedAt = Date.now();
     runDot.className = "run-dot running";
     runLabel.textContent = "Signals live";
@@ -1293,7 +1302,9 @@ function showEvent(event) {
 
   if (event.type === "run_completed") {
     runDot.className = event.metadata?.status === "failed" ? "run-dot failed" : "run-dot complete";
-    runLabel.textContent = event.metadata?.status === "failed" ? "Run failed" : "Run complete";
+    runLabel.textContent = event.metadata?.status === "failed"
+      ? "Run failed"
+      : (demoMode ? "Demo complete" : "Run complete");
     renderFlowMap();
   }
 }
@@ -1311,6 +1322,11 @@ function processEventQueue() {
 }
 
 function enqueueEvent(event) {
+  if (event.type === "run_started" && event.run_id !== currentRunId) {
+    seenEventIds.clear();
+  }
+  if (event.event_id && seenEventIds.has(event.event_id)) return;
+  if (event.event_id) seenEventIds.add(event.event_id);
   eventQueue.push(event);
   if (!playbackPaused && runLabel.textContent !== "Run complete") {
     runLabel.textContent = eventQueue.length > 1 ? `${eventQueue.length} events queued` : "Signals live";

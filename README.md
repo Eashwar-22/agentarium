@@ -92,7 +92,7 @@ Run the Python and browser-logic tests:
 
 ```bash
 python -m unittest discover -s tests -v
-node --test tests/test_run_metrics.js tests/test_run_story.js
+node --test tests/*.js
 ```
 
 Build a wheel:
@@ -111,3 +111,17 @@ docs/               Event schema and longer guides
 ```
 
 Agentarium is an early prototype. The public API and event schema may change.
+
+## Deploy the prerecorded Vercel demo
+
+The public demo replays fixed events. It needs no API keys and makes no OpenAI
+or Tavily calls.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FEashwar-22%2Fagentarium)
+
+1. Import this GitHub repository at [vercel.com/new](https://vercel.com/new).
+2. Keep the default project settings.
+3. Click **Deploy**.
+
+Vercel uses `vercel.json` to serve the existing dashboard and `/api/events` to
+stream the sample run. The local Python adapter continues to use real events.
