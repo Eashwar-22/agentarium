@@ -123,5 +123,6 @@ or Tavily calls.
 2. Keep the default project settings.
 3. Click **Deploy**.
 
-Vercel uses `vercel.json` to serve the existing dashboard and `/api/events` to
-stream the sample run. The local Python adapter continues to use real events.
+Vercel serves the existing FastAPI dashboard and uses `vercel.json` to route
+`/events` to the sample run. The local Python adapter continues to use real
+events.

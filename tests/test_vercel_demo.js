@@ -1,5 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vercelConfig = require("../vercel.json");
+
+test("Vercel leaves dashboard routes with FastAPI", () => {
+  assert.deepEqual(vercelConfig.rewrites, [
+    { source: "/events", destination: "/api/events" },
+  ]);
+});
 
 test("Vercel demo exposes one complete source-linked run", async () => {
   const { GET, demoEvents } = await import("../api/events.mjs");

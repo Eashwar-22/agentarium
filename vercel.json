@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/", "destination": "/agentarium/static/index.html" },
-    { "source": "/styles.css", "destination": "/agentarium/static/styles.css" },
-    { "source": "/run_metrics.js", "destination": "/agentarium/static/run_metrics.js" },
-    { "source": "/run_story.js", "destination": "/agentarium/static/run_story.js" },
-    { "source": "/script.js", "destination": "/agentarium/static/script.js" },
     { "source": "/events", "destination": "/api/events" }
   ]
 }
