@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentarium-local"
+version = "0.1.0"
+description = "A visual event adapter for OpenAI Agents SDK workflows."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "openai-agents>=0.22",
+  "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+examples = [
+  "pydantic>=2",
+  "tavily-python>=0.5",
+]
+
+[project.scripts]
+agentarium-dashboard = "agentarium.dashboard:main"
+
+[tool.setuptools]
+packages = ["agentarium"]
+
+[tool.setuptools.package-data]
+agentarium = ["static/*.html", "static/*.css", "static/*.js"]

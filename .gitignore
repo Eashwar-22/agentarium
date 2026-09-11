@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.agentarium/
+.venv-agentarium/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.DS_Store
+.idea/
+.vscode/
+build/
+dist/
+*.egg-info/
