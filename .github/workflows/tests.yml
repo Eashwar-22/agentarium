@@ -31,5 +31,32 @@ jobs:
       - name: Run JavaScript tests
         run: node --test tests/*.js
 
+      - name: Check large recording time and memory
+        run: |
+          node tools/benchmark_run_view.cjs
+          python -m tools.benchmark_event_tail
+
       - name: Build wheel
         run: python -m pip wheel --no-deps --wheel-dir dist .
+
+      - name: Verify wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/agentarium-wheel"
+          "$RUNNER_TEMP/agentarium-wheel/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/agentarium-wheel/bin/python" "$GITHUB_WORKSPACE/tools/verify_installed.py"
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked browser test dependencies
+        run: npm ci --ignore-scripts
+      - name: Run browser regressions with the runner's Chrome
+        run: npm run test:browser
+        env:
+          CHROME_PATH: /usr/bin/google-chrome

@@ -4,17 +4,33 @@ from __future__ import annotations
 
 import json
 import re
+from functools import wraps
+from dataclasses import asdict, is_dataclass
 from collections.abc import Mapping
 from typing import Any
 
 from agents import Agent, RunHooks, Runner
 
 from .core import EventRecorder
+from .capture import CapturePolicy
 from .dashboard import start_dashboard
 from .events import SourceInfo
 
 
 _AUTO_HANDOFF = object()
+
+
+def _recording_callback(callback):
+    """Keep observation failures out of the SDK's workflow callbacks."""
+    @wraps(callback)
+    async def guarded(self, *args, **kwargs):
+        if self.recorder.recording_error is not None:
+            return
+        try:
+            await callback(self, *args, **kwargs)
+        except Exception as error:
+            self.recorder._disable_recording(error)
+    return guarded
 
 
 def _short(value: object, limit: int = 240) -> str:
@@ -33,6 +49,27 @@ def _artifact_preview(value: object, limit: int = 1200) -> str:
         text = str(value)
     text = text.strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _artifact_content(value: object) -> str:
+    """Serialize an artifact without the dashboard preview limit."""
+
+    return _recorded_content(value)
+
+
+def _recorded_content(value: object) -> str:
+    """Keep structured SDK data as JSON without shortening recorded payloads."""
+    if isinstance(value, str):
+        return value
+
+    def serialize(item: object) -> object:
+        if hasattr(item, "model_dump"):
+            return item.model_dump(mode="json")
+        if is_dataclass(item):
+            return asdict(item)
+        return str(item)
+
+    return json.dumps(value, default=serialize, indent=2, ensure_ascii=False)
 
 
 def _sources_from_result(value: object, limit: int = 20) -> tuple[SourceInfo, ...]:
@@ -91,23 +128,38 @@ class AgentariumRunHooks(RunHooks):
         self._agent_ids: dict[int, str] = {}
         self._tool_calls: dict[tuple[str, str], str] = {}
         self._activities: dict[int, str] = {}
+        self._full_activities: dict[int, str] = {}
 
     def set_activity(self, agent: Agent[Any], value: object) -> None:
-        self._activities[id(agent)] = _short(value, limit=800)
+        content = self._capture_text(value)
+        self._activities[id(agent)] = _short(content, limit=800)
+        self._full_activities[id(agent)] = content
+
+    def _capture_text(self, value: object) -> str:
+        try:
+            return self.recorder.capture_policy.sanitize(_recorded_content(value))
+        except Exception as error:
+            self.recorder._disable_recording(error)
+            return "[Payload capture unavailable]"
 
     def identify(self, agent: Agent[Any]) -> str:
         identity = id(agent)
         name = str(getattr(agent, "name", type(agent).__name__))
-        agent_id = self.recorder.discover_agent(identity, name)
+        agent_id = self.recorder.discover_agent(identity, name, getattr(agent, "handoff_description", None))
         self._agent_ids[identity] = agent_id
         return agent_id
 
+    @_recording_callback
     async def on_agent_start(self, context: Any, agent: Agent[Any]) -> None:
         agent_id = self.identify(agent)
         self.recorder.start_task(
-            agent_id, agent.name, self._activities.get(id(agent))
+            agent_id,
+            agent.name,
+            self._activities.get(id(agent)),
+            self._full_activities.get(id(agent)),
         )
 
+    @_recording_callback
     async def on_llm_start(
         self,
         context: Any,
@@ -123,8 +175,11 @@ class AgentariumRunHooks(RunHooks):
             self._activities.get(id(agent)),
             len(input_items),
             model,
+            self._full_activities.get(id(agent)),
+            model_input_full=_recorded_content({"system_prompt": system_prompt, "input_items": input_items}),
         )
 
+    @_recording_callback
     async def on_llm_end(
         self, context: Any, agent: Agent[Any], response: Any
     ) -> None:
@@ -138,8 +193,10 @@ class AgentariumRunHooks(RunHooks):
             int(getattr(usage, "input_tokens", 0) or 0),
             int(getattr(usage, "output_tokens", 0) or 0),
             int(getattr(usage, "total_tokens", 0) or 0),
+            _recorded_content(response),
         )
 
+    @_recording_callback
     async def on_agent_end(self, context: Any, agent: Agent[Any], output: Any) -> None:
         agent_id = self.identify(agent)
         output_name = type(output).__name__
@@ -150,9 +207,11 @@ class AgentariumRunHooks(RunHooks):
             kind,
             title,
             preview=_artifact_preview(output),
+            content=_artifact_content(output),
         )
         self.recorder.complete_task(agent_id, agent.name)
 
+    @_recording_callback
     async def on_handoff(
         self, context: Any, from_agent: Agent[Any], to_agent: Agent[Any]
     ) -> None:
@@ -163,6 +222,7 @@ class AgentariumRunHooks(RunHooks):
             source_id, target_id, from_agent.name, to_agent.name
         )
 
+    @_recording_callback
     async def on_tool_start(self, context: Any, agent: Agent[Any], tool: Any) -> None:
         agent_id = self.identify(agent)
         call_id = str(getattr(context, "tool_call_id", "") or id(context))
@@ -173,9 +233,12 @@ class AgentariumRunHooks(RunHooks):
             agent_id,
             tool_name,
             call_id,
-            _short(arguments, limit=600) if arguments else None,
+            _short(self._capture_text(arguments), limit=600) if arguments else None,
+            getattr(tool, "description", None),
+            _recorded_content(arguments) if arguments else None,
         )
 
+    @_recording_callback
     async def on_tool_end(
         self, context: Any, agent: Agent[Any], tool: Any, result: object
     ) -> None:
@@ -191,8 +254,9 @@ class AgentariumRunHooks(RunHooks):
             agent_id,
             tool_name,
             call_id,
-            _short(result, limit=600),
+            _short(self._capture_text(result), limit=600),
             sources=_sources_from_result(result),
+            output_full=_recorded_content(result),
         )
 
 
@@ -207,8 +271,9 @@ class OpenAIAgentsObserver:
         show_dashboard: bool = False,
         dashboard_port: int | None = None,
         open_browser: bool = True,
+        capture_policy: CapturePolicy | None = None,
     ) -> None:
-        self.recorder = EventRecorder(question, event_path)
+        self.recorder = EventRecorder(question, event_path, capture_policy=capture_policy)
         self.hooks = AgentariumRunHooks(self.recorder)
         self._previous_agent: Agent[Any] | None = None
         self._last_error: BaseException | None = None
@@ -227,9 +292,12 @@ class OpenAIAgentsObserver:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: BaseException | None, tb: Any) -> None:
-        if exc is not None and exc is not self._last_error:
-            self.recorder.record_error(_short(exc))
-        self.recorder.finish(succeeded=exc is None)
+        try:
+            if exc is not None and exc is not self._last_error:
+                self.recorder.record_error(_short(exc))
+            self.recorder.finish(succeeded=exc is None)
+        except Exception as recording_error:
+            self.recorder._disable_recording(recording_error)
 
     async def run(
         self,
@@ -245,26 +313,27 @@ class OpenAIAgentsObserver:
         ``handoff_from=None`` for independent work that runs in parallel, or
         pass an explicit source agent when the workflow graph branches.
         """
-        self.hooks.set_activity(agent, input)
-        source_agent = self._previous_agent if handoff_from is _AUTO_HANDOFF else handoff_from
-        if source_agent is not None and source_agent is not agent:
-            source_id = self.hooks.identify(source_agent)
-            target_id = self.hooks.identify(agent)
-            self.recorder.handoff(
-                source_id,
-                target_id,
-                source_agent.name,
-                agent.name,
-            )
-        if handoff_from is not None:
-            self._previous_agent = agent
+        try:
+            self.hooks.set_activity(agent, input)
+            source_agent = self._previous_agent if handoff_from is _AUTO_HANDOFF else handoff_from
+            if source_agent is not None and source_agent is not agent:
+                source_id = self.hooks.identify(source_agent)
+                target_id = self.hooks.identify(agent)
+                self.recorder.handoff(source_id, target_id, source_agent.name, agent.name)
+            if handoff_from is not None:
+                self._previous_agent = agent
+        except Exception as recording_error:
+            self.recorder._disable_recording(recording_error)
 
         try:
             return await Runner.run(agent, input, hooks=self.hooks, **runner_options)
         except BaseException as exc:
             self._last_error = exc
-            agent_id = self.hooks.identify(agent)
-            self.recorder.record_error(_short(exc), agent_id=agent_id)
+            try:
+                agent_id = self.hooks.identify(agent)
+                self.recorder.record_error(_short(exc), agent_id=agent_id)
+            except Exception as recording_error:
+                self.recorder._disable_recording(recording_error)
             raise
 
 
@@ -275,6 +344,7 @@ def observe_openai(
     show_dashboard: bool = False,
     dashboard_port: int | None = None,
     open_browser: bool = True,
+    capture_policy: CapturePolicy | None = None,
 ) -> OpenAIAgentsObserver:
     """Create the multi-agent OpenAI wrapper.
 
@@ -288,4 +358,5 @@ def observe_openai(
         show_dashboard=show_dashboard,
         dashboard_port=dashboard_port,
         open_browser=open_browser,
+        capture_policy=capture_policy,
     )

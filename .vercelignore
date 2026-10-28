@@ -1,0 +1,15 @@
+# Local credentials, recordings, environments, and build outputs.
+.env
+.env.*
+.agentarium/
+.venv/
+.venv-*/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vercel/
+build/
+dist/
+*.egg-info/
+.DS_Store

@@ -132,6 +132,7 @@ def investigate_technical_fit(query: str) -> str:
 
 coordinator = Agent(
     name="Decision Coordinator",
+    handoff_description="Plans the research and assigns market, risk, and technical questions.",
     instructions=(
         "Turn the request into a concise investigation plan. Write one focused "
         "query each for market value, operational risk, and technical fit. Do "
@@ -142,6 +143,7 @@ coordinator = Agent(
 
 market_researcher = Agent(
     name="Market Researcher",
+    handoff_description="Finds evidence about market value and adoption.",
     instructions=(
         "Use investigate_market exactly once with the supplied market query. "
         "Return only evidence from the tool results, exact source URLs, and "
@@ -153,6 +155,7 @@ market_researcher = Agent(
 
 risk_researcher = Agent(
     name="Risk Researcher",
+    handoff_description="Investigates operational, legal, and privacy risks.",
     instructions=(
         "Use investigate_risk exactly once with the supplied risk query. "
         "Focus on practical failure modes, legal or privacy concerns, and "
@@ -164,6 +167,7 @@ risk_researcher = Agent(
 
 technical_researcher = Agent(
     name="Technical Researcher",
+    handoff_description="Checks integration, evaluation, monitoring, and rollout feasibility.",
     instructions=(
         "Use investigate_technical_fit exactly once with the supplied technical "
         "query. Focus on integration, evaluation, monitoring, and rollout. "
@@ -175,6 +179,7 @@ technical_researcher = Agent(
 
 evidence_synthesizer = Agent(
     name="Evidence Synthesizer",
+    handoff_description="Combines the research into one assessment with open questions.",
     instructions=(
         "Merge the three branch reports into a balanced decision assessment. "
         "Separate supported evidence, material risks, and open questions. Do "
@@ -185,6 +190,7 @@ evidence_synthesizer = Agent(
 
 draft_architect = Agent(
     name="Decision Architect",
+    handoff_description="Drafts the recommendation and pilot plan from the evidence.",
     instructions=(
         "Turn the assessment into a short decision memo. Give a clear "
         "recommendation, conditions for proceeding, and a small pilot plan. "
@@ -194,6 +200,7 @@ draft_architect = Agent(
 
 quality_reviewer = Agent(
     name="Decision Reviewer",
+    handoff_description="Checks the recommendation against the evidence and requests corrections.",
     instructions=(
         "Review the decision memo against the source assessment. Approve only "
         "if the recommendation is clear, claims are supported, risks are "
@@ -205,6 +212,7 @@ quality_reviewer = Agent(
 
 final_writer = Agent(
     name="Final Brief Writer",
+    handoff_description="Writes the final brief using the reviewed draft and feedback.",
     instructions=(
         "Write the final decision-ready brief using the draft and reviewer "
         "feedback. Apply every valid correction. Do not add unsupported claims "

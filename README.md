@@ -46,6 +46,17 @@ saved locally in `.agentarium/events.jsonl`.
 
 ## Run an example
 
+To test the real Agents SDK runner and Agentarium adapter without an API key:
+
+```bash
+python -m examples.sdk_smoke_workflow
+AGENTARIUM_EVENT_FILE=.agentarium/sdk-smoke.jsonl agentarium-dashboard --port 8001
+```
+
+Open `http://127.0.0.1:8001/` to inspect the recorded model calls, tool call,
+tool result, and final output. The script uses a deterministic local model and
+checks its 13-event trace. It makes no paid calls.
+
 The search examples also need Tavily:
 
 ```bash
@@ -73,10 +84,82 @@ By default, it reads `.agentarium/events.jsonl` from the current directory. Set
 - Agent messages and handoffs
 - Errors and retries
 - Artifacts and output previews
-- A post-run scorecard and complete run story
+- A run overview with current work, recorded errors and retries, saved outputs,
+  source links, and measured usage
+- A chronological trace with agent/action filters, search, and JSON export
+
+The overview shows what is still open and which results are available. Open
+**Trace** to inspect actions in order. Selecting an action opens its recorded
+input and output in a scrollable dialog. Full payloads are used when present;
+older recordings that contain only previews are labelled accordingly. No model
+calls are made to generate dashboard descriptions or scores.
+
+Live events display as they arrive. **Pause display** freezes the view while
+recording continues. **Replay** plays the captured run for inspection; it does
+not execute the workflow or make paid API calls. **Return to live** catches up
+with the latest received events.
 
 The event format is documented in
 [docs/EVENT_SCHEMA.md](docs/EVENT_SCHEMA.md).
+
+## Recording controls
+
+Full payload capture is off by default. The recording still includes task
+summaries, output previews, errors, and source links, which may contain private
+data. To inspect current model input items, observed system instructions, full
+tool arguments/results, and saved artifacts, opt in for that run. Model-call
+inputs are shown separately from the original task intent.
+
+Configure capture for a run:
+
+```python
+from agentarium import CapturePolicy, run_sync
+
+policy = CapturePolicy(
+    full_payloads=True,
+    redact_values=("an-exact-secret-to-remove",),
+    redactor=lambda text: text.replace("customer@example.com", "[EMAIL]"),
+)
+result = run_sync(agent, "Your request", capture_policy=policy)
+```
+
+`capture_policy` is also accepted by `run()` and `observe_openai()`. Credential
+fields such as `api_key`, `password`, and `authorization` in structured data are
+redacted by default. `redact_values` handles known secrets in free text, including
+previews. Use a deterministic, idempotent `redactor` for application-specific
+private data. These controls do not detect every kind of secret automatically.
+
+For a workflow with private data, name the values that must be removed from
+summaries, source URLs, and exported JSON as well as full payloads:
+
+```python
+policy = CapturePolicy(
+    redact_values=(customer_token,),
+    redactor=lambda text: text.replace(customer_email, "[EMAIL]"),
+)
+result = run_sync(agent, request, capture_policy=policy)
+```
+
+Review the recorded JSONL file before sharing an export. The redactor receives
+each recorded string; it does not automatically discover other private values.
+
+Set `AGENTARIUM_CAPTURE_FULL=1` to opt in through the environment, or pass
+`CapturePolicy(full_payloads=True)`. Summaries remain recorded and still need
+appropriate redaction. A redaction failure disables recording rather than
+persisting unsanitized events. On supported systems new recordings are restricted
+to the file owner (`0600`).
+
+The default file holds the latest run and is replaced when a new recorder starts.
+An active recorder holds a companion `.lock` file; a second recorder using the
+same event path warns and skips its recording instead of replacing the first.
+Use a different `event_path` for each concurrent workflow to record both runs.
+Stop the workflow and delete the JSONL file when you
+no longer need its contents; remove exported copies separately. The dashboard
+binds to localhost and has no public sharing or access-control service.
+
+An event-file write failure emits one warning and disables further disk writes;
+the workflow continues. Original workflow results and exceptions are preserved.
+Such a recording may be incomplete and should not be used as an audit record.
 
 ## Current limits
 
@@ -101,6 +184,34 @@ Build a wheel:
 python -m pip wheel --no-deps --wheel-dir dist .
 ```
 
+Run the browser regression suite (no API keys or paid calls):
+
+```bash
+npm ci
+npm run test:browser
+```
+
+On macOS the tests use the installed Google Chrome. On other platforms Puppeteer's
+downloaded Chrome is used; set `CHROME_PATH` to use an existing Chrome binary.
+The suite checks full-payload dialogs, filtering, pause/resume, final-result
+selection, themes, mobile overflow, pagination, and returning from replay to live.
+
+Run the synthetic large-recording checks:
+
+```bash
+node tools/benchmark_run_view.cjs
+python -m tools.benchmark_event_tail
+```
+
+These check a 10,000-event recording with 4 KB payloads, incremental reads, and
+zero file-content reads during 100 idle polls. Local performance targets are
+under 1 second for the frontend data model and under 10 seconds to read/parse the
+file. This is the measured local workload target, about a 44 MB recording.
+The benchmark also checks frontend heap below 256 MiB and file-reader peak
+allocation below 128 MiB. Larger recordings and individual full payloads have
+no enforced memory cap. These are development checks, not throughput guarantees
+for every machine.
+
 Project layout:
 
 ```text
@@ -116,6 +227,8 @@ Agentarium is an early prototype. The public API and event schema may change.
 
 The public demo replays fixed events. It needs no API keys and makes no OpenAI
 or Tavily calls.
+
+Live demo: https://agentarium-five.vercel.app/
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FEashwar-22%2Fagentarium)
 

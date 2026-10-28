@@ -1,208 +1,48 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Agentarium — observable agent state, embodied." />
-    <title>Agentarium</title>
-    <link rel="stylesheet" href="styles.css" />
-    <script src="run_metrics.js" defer></script>
-    <script src="run_story.js" defer></script>
-    <script src="script.js" defer></script>
-  </head>
-  <body>
-    <div class="page-grid" aria-hidden="true"></div>
-    <main class="app-shell">
-      <header class="topbar">
-        <a class="brand" href="#" aria-label="Agentarium home">
-          <span class="brand-mark">A</span>
-          <span>Agentarium</span>
-          <span class="prototype-tag">live adapter</span>
-        </a>
-        <div class="run-controls">
-          <div class="run-state" aria-live="polite">
-            <span class="run-dot" id="run-dot"></span>
-            <span id="run-label">Live listener ready</span>
-          </div>
-          <button class="secondary-button" id="pause-button" type="button">
-            <span aria-hidden="true">Ⅱ</span> Pause
-          </button>
-          <label class="speed-control" for="speed-select">
-            Speed
-            <select id="speed-select">
-              <option value="0.5">0.5×</option>
-              <option value="1" selected>1×</option>
-              <option value="2">2×</option>
-              <option value="4">4×</option>
-            </select>
-          </label>
-          <button class="run-button" id="run-button" type="button">
-            <span aria-hidden="true">↻</span> Replay latest
-          </button>
-        </div>
-      </header>
-
-      <section class="mission-header" aria-labelledby="mission-title">
-        <div>
-          <p class="eyebrow">Waiting for live run</p>
-          <h1 id="mission-title">Waiting for a workflow…</h1>
-        </div>
-      </section>
-
-      <section class="collective-stage" aria-labelledby="stage-title">
-        <div class="stage-heading">
-          <div>
-            <p class="eyebrow">Shared run space</p>
-            <h2 id="stage-title">Agent signal field</h2>
-          </div>
-          <div class="connection-key">
-            <span><i class="solid-line"></i> handoff</span>
-            <span><i class="dotted-line"></i> message</span>
-          </div>
-        </div>
-        <div class="stage-scroll">
-          <svg class="agent-field" viewBox="0 0 1200 440" role="img" aria-label="Dynamically discovered agent avatars sharing tasks and artifacts"></svg>
-        </div>
-      </section>
-
-      <section class="agent-inspector" aria-labelledby="inspector-title">
-        <div class="inspector-heading">
-          <div><p class="eyebrow">Happening now</p><h2 id="inspector-title">Waiting for activity</h2></div>
-          <span id="inspector-hint">Live view</span>
-        </div>
-        <div class="live-focus" aria-live="polite">
-          <div class="signal-symbol" id="signal-symbol">○</div>
-          <div class="live-focus-copy">
-            <span id="signal-source">No active agent</span>
-            <strong id="signal-message">Start a workflow to see what the agents are doing.</strong>
-          </div>
-        </div>
-        <div class="part-status-strip" aria-label="Body-part activity">
-          <span data-status-part="head"><i>◉</i> Mind</span>
-          <span data-status-part="hands"><i>↔</i> Hands</span>
-          <span data-status-part="core"><i>◈</i> Core</span>
-          <span data-status-part="pack"><i>◇</i> Artifact</span>
-          <span data-status-part="legs"><i>▲</i> Progress</span>
-        </div>
-        <div class="color-guide" aria-label="Avatar color guide">
-          <span class="color-guide-title">Color guide</span>
-          <span><i class="guide-activity"></i>Blue/cyan · normal activity</span>
-          <span><i class="guide-done"></i>Green · done</span>
-          <span><i class="guide-slow"></i>Purple head · slow</span>
-          <span><i class="guide-attention"></i>Amber · retry, recovered, or repeat</span>
-          <span><i class="guide-error"></i>Red core · error</span>
-          <span><i class="guide-waiting"></i>Grey · waiting</span>
-        </div>
-        <details class="inspector-details">
-          <summary>View all body signals <span>Technical details</span></summary>
-          <div class="technical-event">Current event <code id="signal-type">idle</code></div>
-          <div class="body-detail-grid">
-            <article data-inspector-part="head"><span>◉ Mind</span><strong>Nothing observed yet</strong></article>
-            <article data-inspector-part="hands"><span>↔ Hands</span><strong>Nothing observed yet</strong></article>
-            <article data-inspector-part="core"><span>◈ Core</span><strong>Healthy · no errors</strong></article>
-            <article data-inspector-part="pack"><span>◇ Artifact</span><strong>No artifacts yet</strong></article>
-            <article data-inspector-part="legs"><span>▲ Progress</span><strong>Waiting to start</strong></article>
-          </div>
-        </details>
-      </section>
-
-      <section class="run-report" aria-labelledby="run-report-title">
-        <div class="observability-heading report-heading">
-          <div><p class="eyebrow">Post-run scorecard</p><h2 id="run-report-title">Execution health</h2></div>
-          <span id="scorecard-state">Waiting for a run</span>
-        </div>
-        <div class="report-layout">
-          <div class="score-summary">
-            <div class="score-ring" id="execution-score" aria-label="Execution score not available">
-              <strong id="execution-score-value">—</strong>
-              <span>/ 100</span>
-            </div>
-            <div>
-              <span class="score-label">Execution score</span>
-              <strong id="score-verdict">No run yet</strong>
-              <p id="score-note">Starts at 100. Failures, unfinished work, errors, retries, and repeated identical calls lower it.</p>
-            </div>
-          </div>
-          <div class="metric-grid">
-            <article><span>Status</span><strong id="metric-status">Waiting</strong><small id="metric-status-note">No workflow observed</small></article>
-            <article><span>Total time</span><strong id="metric-duration">—</strong><small>Start to finish</small></article>
-            <article><span>Tool success</span><strong id="metric-tools">—</strong><small id="metric-tools-note">No calls observed</small></article>
-            <article><span>Tokens / cost</span><strong id="metric-tokens">—</strong><small id="metric-cost">Cost not reported</small></article>
-            <article><span>Task progress</span><strong id="metric-tasks">—</strong><small>Completed steps</small></article>
-            <article><span>Errors / retries</span><strong id="metric-recovery">—</strong><small>Observable recovery work</small></article>
-          </div>
-        </div>
-        <div class="diagnostic-grid">
-          <article>
-            <span class="diagnostic-icon slow">◷</span>
-            <div><span>Bottleneck candidate</span><strong id="metric-bottleneck">Waiting for task timing</strong></div>
-          </article>
-          <article>
-            <span class="diagnostic-icon repeat">↻</span>
-            <div><span>Loop check</span><strong id="metric-loops">No repeated identical calls</strong></div>
-          </article>
-        </div>
-        <p class="report-caveat">This score measures run mechanics. It does not judge whether the final answer is factually correct.</p>
-      </section>
-
-      <section class="run-story" aria-labelledby="run-story-title">
-        <div class="observability-heading story-heading">
-          <div><p class="eyebrow">Full run record</p><h2 id="run-story-title">The run story</h2></div>
-          <span id="story-state">Waiting for a run</span>
-        </div>
-        <p class="story-intro">A readable record built from captured events. “Model work” shows the recorded task intent and activity—not private chain-of-thought.</p>
-        <div class="story-overview" id="story-overview">
-          <p class="empty-observability">Run a workflow to build its story.</p>
-        </div>
-        <div class="story-agents" id="story-agents"></div>
-        <details class="story-timeline-drawer">
-          <summary>View full start-to-finish timeline <span id="story-step-count">0 steps</span></summary>
-          <ol class="story-timeline" id="story-timeline"></ol>
-        </details>
-        <section class="story-sources" aria-labelledby="story-sources-title">
-          <div class="story-section-heading">
-            <h3 id="story-sources-title">Sources referred to</h3>
-            <span id="story-source-count">0 sources</span>
-          </div>
-          <div class="source-list" id="story-source-list">
-            <p class="empty-observability">No source links recorded yet.</p>
-          </div>
-        </section>
-      </section>
-
-      <section class="observability-deck" aria-label="Workflow observability">
-        <article class="trace-panel">
-          <div class="observability-heading">
-            <div><p class="eyebrow">Developer trace</p><h2>What took time</h2></div>
-            <span id="trace-summary">Waiting for events</span>
-          </div>
-          <div class="trace-list" id="trace-list">
-            <p class="empty-observability">Agent and tool spans will appear here during the run.</p>
-          </div>
-        </article>
-        <article class="flow-panel">
-          <div class="observability-heading">
-            <div><p class="eyebrow">Completed workflow</p><h2>How the work moved</h2></div>
-            <span id="flow-summary">Available when the run finishes</span>
-          </div>
-          <div class="flow-map" id="flow-map">
-            <p class="empty-observability">The final agent and tool map will appear here.</p>
-          </div>
-        </article>
-      </section>
-
-      <section class="lower-deck">
-        <div class="signal-key">
-          <p class="eyebrow">Body signal map</p>
-          <div class="key-items">
-            <span><i></i>Mind · task</span><span><i></i>Hands · tools</span><span><i></i>Core · health</span><span><i></i>Artifact · output</span><span><i></i>Legs · completion</span>
-          </div>
-        </div>
-        <details class="event-drawer">
-          <summary><span>Raw event stream</span><strong id="event-count">0 events</strong></summary>
-          <ol id="event-list" aria-live="polite"><li class="empty-event">Run a workflow to see observable events.</li></ol>
-        </details>
-      </section>
-    </main>
-  </body>
-</html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Inspect your workflow runs, results, and tool activity.">
+<title>Agentarium</title>
+<link rel="stylesheet" href="/styles.css?v=30">
+<script src="/run_view.js?v=22" defer></script>
+<script src="/script.js?v=30" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-layout">
+<aside class="sidebar">
+<a class="brand" href="/" aria-label="Agentarium home"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7m-3.5-3.5v7"/></svg>Agentarium</a>
+<div class="nav-label">WORKSPACE</div>
+<nav class="tabs" aria-label="Run views">
+<button class="selected" data-view="overview" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/></svg>Overview</button>
+<button data-view="trace" aria-pressed="false"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/></svg>Trace <span id="trace-count">0</span></button>
+</nav>
+<div class="sidebar-bottom"><span id="connection" role="status">Connecting</span><span class="local-note">Local workspace</span></div>
+</aside>
+<main class="shell" id="main">
+<header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong>Current run</strong></div><div class="toolbar"><button id="theme">Dark theme</button><button id="download" class="primary">Export JSON <span aria-hidden="true">↓</span></button></div></header>
+<section class="run-header"><div class="run-title"><span id="run-status" class="status">Waiting</span><details class="run-identifier"><summary>Run details</summary><code id="run-id">No run received</code></details></div><h1 id="question">Waiting for a workflow</h1><p id="run-context" class="muted">Start a workflow to see its activity here.</p></section>
+<section class="metrics" aria-label="Run summary"><dl id="metrics"></dl></section>
+<div class="workspace">
+<section id="overview">
+<div class="results-column">
+<section class="panel result-panel"><div class="heading"><h2 id="work-title">Current work</h2><span id="active-count" class="count"></span></div><div id="active-work"></div></section>
+<section class="panel"><div class="heading"><h2>Saved outputs</h2><span id="output-count" class="count"></span></div><div id="outputs"></div></section>
+</div>
+<div class="context-column">
+<section class="panel"><div class="heading"><h2>Errors & retries</h2><span id="issue-count" class="count"></span></div><div id="issues"></div></section>
+<section class="panel"><div class="heading"><h2>Sources</h2><span id="source-count" class="count"></span></div><div id="sources"></div></section>
+</div>
+</section>
+<section id="trace" hidden class="panel">
+<div class="heading trace-heading"><h2>Activity log</h2><div class="playback"><button id="replay">Replay</button><button id="pause">Pause display</button><button id="live" hidden>Return to live</button></div></div>
+<div class="filters"><input id="search" type="search" placeholder="Search activity…" aria-label="Search trace"><select id="agent-filter" aria-label="Filter by agent"><option value="">All agents</option></select><select id="type-filter" aria-label="Filter by action"><option value="">All actions</option><option value="tool">Tools</option><option value="model">Model calls</option><option value="error">Errors</option><option value="artifact">Outputs</option><option value="task">Tasks</option><option value="handoff">Transfers</option></select></div>
+<div class="trace-labels"><span>Time</span><span>Agent</span><span>Activity</span></div>
+<div id="trace-list" class="trace-list" tabindex="0" aria-label="Scrollable activity log"></div><div class="trace-pagination"><p class="muted" id="trace-footer"></p><button id="trace-prev">Previous</button><button id="trace-next">Next</button></div>
+</section>
+</div>
+</main>
+</div>
+<dialog id="detail-dialog" aria-labelledby="detail-title"><header class="dialog-header"><div><p id="detail-agent" class="muted"></p><h2 id="detail-title">Activity details</h2></div><button id="close-dialog" aria-label="Close details">Close <span aria-hidden="true">×</span></button></header><div class="dialog-tools"><button id="copy-detail">Copy JSON</button><button id="download-detail">Download JSON</button><span id="copy-status" role="status"></span></div><div id="detail-content" class="dialog-content"></div></dialog>
+</body></html>

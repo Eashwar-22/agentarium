@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import os
 import re
+import warnings
+try:
+    import fcntl
+except ImportError:  # Windows
+    import msvcrt
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Hashable
 from uuid import uuid4
+
+from .capture import CapturePolicy
 
 from .events import (
     AgentEvent,
@@ -33,7 +40,7 @@ def _slug(value: str) -> str:
 class EventRecorder:
     """Build valid Agentarium events and append them to a live JSONL stream."""
 
-    def __init__(self, question: str, event_path: Path | str | None = None) -> None:
+    def __init__(self, question: str, event_path: Path | str | None = None, *, capture_policy: CapturePolicy | None = None) -> None:
         self.question = question
         self.event_path = Path(event_path) if event_path else default_event_path()
         self.run_id = f"run-{uuid4().hex[:12]}"
@@ -44,13 +51,68 @@ class EventRecorder:
         self._task_counts: dict[str, int] = {}
         self._started = False
         self._finished = False
+        self.capture_policy = capture_policy or CapturePolicy.from_env()
+        self.recording_error: Exception | None = None
+        self._last_artifact_id: str | None = None
+        self._lock_fd: int | None = None
+
+    def _release_file_lock(self) -> None:
+        if self._lock_fd is None:
+            return
+        try:
+            if os.name == "nt":
+                os.lseek(self._lock_fd, 0, os.SEEK_SET)
+                msvcrt.locking(self._lock_fd, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self._lock_fd)
+            self._lock_fd = None
+
+    def _acquire_file_lock(self) -> None:
+        lock_path = self.event_path.with_name(self.event_path.name + ".lock")
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            if os.name == "nt":
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            raise
+        self._lock_fd = fd
+
+    def _disable_recording(self, error: Exception) -> None:
+        if self.recording_error is None:
+            self.recording_error = error
+            try:
+                self._release_file_lock()
+            except OSError:
+                pass
+            try:
+                warnings.warn("Agentarium could not persist its recording. Workflow execution continues; the trace may be incomplete.", RuntimeWarning, stacklevel=2)
+            except Warning:
+                pass  # A warnings-as-errors setting must not interrupt the caller.
 
     def start(self) -> None:
         if self._started:
             return
-        self.event_path.parent.mkdir(parents=True, exist_ok=True)
-        self.event_path.write_text("", encoding="utf-8")
         self._started = True
+        if self.recording_error is not None:
+            return
+        try:
+            self.event_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._acquire_file_lock()
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(self.event_path, flags, 0o600)
+            try:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            self._disable_recording(exc)
         self.emit(
             EventType.RUN_STARTED,
             "Agent workflow started.",
@@ -74,12 +136,25 @@ class EventRecorder:
             **details,
         )
         validate_event(event)
+        try:
+            raw = event.to_dict()
+            for field in ("summary", "metadata", "tool", "artifact", "error"):
+                raw[field] = self.capture_policy.sanitize(raw[field])
+            event = AgentEvent.from_dict(raw)
+        except Exception as exc:
+            # Fail closed: never persist an unsanitized payload.
+            self._disable_recording(exc)
+            return event
         self.events.append(event)
-        with self.event_path.open("a", encoding="utf-8") as stream:
-            stream.write(event.to_json() + "\n")
+        if self.recording_error is None:
+            try:
+                with self.event_path.open("a", encoding="utf-8") as stream:
+                    stream.write(event.to_json() + "\n")
+            except OSError as exc:
+                self._disable_recording(exc)
         return event
 
-    def discover_agent(self, identity: Hashable, name: str) -> str:
+    def discover_agent(self, identity: Hashable, name: str, description: str | None = None) -> str:
         known = self._agent_ids.get(identity)
         if known:
             return known
@@ -97,12 +172,12 @@ class EventRecorder:
             EventType.AGENT_SPAWNED,
             f"{name} joined the run.",
             agent_id=agent_id,
-            metadata={"name": name, "role": name},
+            metadata={"name": name, "role": name, **({"description": description} if description else {})},
         )
         return agent_id
 
     def start_task(
-        self, agent_id: str, name: str, activity: str | None = None
+        self, agent_id: str, name: str, activity: str | None = None, activity_full: str | None = None
     ) -> str:
         existing = self._active_tasks.get(agent_id)
         if existing:
@@ -119,7 +194,10 @@ class EventRecorder:
             summary,
             agent_id=agent_id,
             task_id=task_id,
-            metadata={"activity": activity} if activity else {},
+            metadata={
+                **({"activity": activity} if activity else {}),
+                **({"activity_full": activity_full} if activity_full else {}),
+            },
         )
         return task_id
 
@@ -165,9 +243,10 @@ class EventRecorder:
         self.emit(
             EventType.RUN_COMPLETED,
             f"Agent workflow {status}.",
-            metadata={"status": status},
+            metadata={"status": status, **({"final_artifact_id": self._last_artifact_id} if self._last_artifact_id else {})},
         )
         self._finished = True
+        self._release_file_lock()
 
     def record_error(
         self,
@@ -212,6 +291,8 @@ class EventRecorder:
         tool_name: str,
         call_id: str,
         input_summary: str | None,
+        description: str | None = None,
+        input_full: str | None = None,
     ) -> None:
         self.emit(
             EventType.TOOL_STARTED,
@@ -219,6 +300,10 @@ class EventRecorder:
             agent_id=agent_id,
             task_id=self.active_task(agent_id),
             tool=ToolInfo(tool_name, call_id, input_summary=input_summary),
+            metadata={
+                **({"tool_description": description} if description else {}),
+                **({"tool_input_full": input_full} if input_full else {}),
+            },
         )
 
     def record_model_start(
@@ -228,6 +313,8 @@ class EventRecorder:
         activity: str | None,
         input_items: int,
         model: str,
+        activity_full: str | None = None,
+        model_input_full: str | None = None,
     ) -> None:
         summary = f"{agent_name} is asking the language model what to do next."
         if activity:
@@ -241,6 +328,8 @@ class EventRecorder:
                 "activity": activity,
                 "input_items": input_items,
                 "model": model,
+                **({"activity_full": activity_full} if activity_full else {}),
+                **({"model_input_full": model_input_full} if model_input_full is not None else {}),
             },
         )
 
@@ -253,6 +342,7 @@ class EventRecorder:
         input_tokens: int,
         output_tokens: int,
         total_tokens: int,
+        output_full: str | None = None,
     ) -> None:
         self.emit(
             EventType.MODEL_COMPLETED,
@@ -265,6 +355,7 @@ class EventRecorder:
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "total_tokens": total_tokens,
+                **({"model_output_full": output_full} if output_full else {}),
             },
         )
 
@@ -275,6 +366,7 @@ class EventRecorder:
         call_id: str,
         output_summary: str | None,
         sources: tuple[SourceInfo, ...] = (),
+        output_full: str | None = None,
     ) -> None:
         self.emit(
             EventType.TOOL_COMPLETED,
@@ -287,6 +379,7 @@ class EventRecorder:
                 output_summary=output_summary,
                 sources=sources,
             ),
+            metadata={"tool_output_full": output_full} if output_full else {},
         )
 
     def record_artifact(
@@ -295,16 +388,20 @@ class EventRecorder:
         kind: str,
         title: str,
         preview: str | None = None,
+        content: str | None = None,
     ) -> None:
+        artifact_id = f"artifact-{uuid4().hex[:10]}"
+        self._last_artifact_id = artifact_id
         self.emit(
             EventType.ARTIFACT_CREATED,
             f"{agent_id} created {title}.",
             agent_id=agent_id,
             task_id=self.active_task(agent_id),
             artifact=ArtifactInfo(
-                artifact_id=f"artifact-{uuid4().hex[:10]}",
+                artifact_id=artifact_id,
                 kind=kind,
                 title=title,
                 preview=preview,
             ),
+            metadata={"full_output": content} if content is not None else {},
         )

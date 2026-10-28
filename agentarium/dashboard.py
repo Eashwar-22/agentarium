@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 import webbrowser
+import logging
 from pathlib import Path
 
 import uvicorn
@@ -17,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .events import AgentEvent
+from .tail import EventTail
 
 
 _dashboard_lock = threading.Lock()
@@ -31,6 +33,7 @@ def _asset_directory() -> Path:
         "styles.css",
         "run_metrics.js",
         "run_story.js",
+        "run_view.js",
         "script.js",
     )
     directory = Path(__file__).resolve().parent / "static"
@@ -67,32 +70,29 @@ def create_app(event_path: Path | str | None = None) -> FastAPI:
     async def run_metrics() -> FileResponse:
         return FileResponse(asset_directory / "run_metrics.js")
 
+    @app.get("/run_view.js")
+    async def run_view() -> FileResponse:
+        return FileResponse(asset_directory / "run_view.js")
+
     @app.get("/run_story.js")
     async def run_story() -> FileResponse:
         return FileResponse(asset_directory / "run_story.js")
 
     async def stream_live_events():
-        sent: set[str] = set()
+        tail = EventTail(event_file)
+        last_invalid = 0
         while True:
-            if event_file.exists():
-                try:
-                    lines = event_file.read_text(encoding="utf-8").splitlines()
-                except OSError:
-                    lines = []
-                for line in lines:
-                    try:
-                        event = AgentEvent.from_json(line)
-                    except (ValueError, json.JSONDecodeError):
-                        continue
-                    if event.event_id in sent:
-                        continue
-                    sent.add(event.event_id)
-                    yield (
-                        f"id: {event.event_id}\n"
-                        f"event: {event.type.value}\n"
-                        f"data: {event.to_json()}\n\n"
-                    )
-            await asyncio.sleep(0.2)
+            try:
+                batch = await asyncio.to_thread(tail.poll)
+            except OSError:
+                batch = []
+                tail.has_more = False
+            if tail.invalid_lines > last_invalid:
+                logging.getLogger(__name__).warning("Skipped malformed event lines in the recording.")
+                last_invalid = tail.invalid_lines
+            for event in batch:
+                yield f"id: {event.event_id}\nevent: {event.type.value}\ndata: {event.to_json()}\n\n"
+            await asyncio.sleep(0 if tail.has_more else 0.2)
 
     @app.get("/events")
     async def events() -> StreamingResponse:

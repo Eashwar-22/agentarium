@@ -1,0 +1,13 @@
+{
+  "name": "agentarium-dashboard-checks",
+  "private": true,
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "test": "node --test tests/*.js",
+    "test:browser": "node --test tests/browser/*.cjs",
+    "benchmark:view": "node tools/benchmark_run_view.cjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.16.0"
+  }
+}

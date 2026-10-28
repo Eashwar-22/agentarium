@@ -11,6 +11,7 @@ from typing import Any
 from agents import Agent, Runner
 
 from .core import EventRecorder
+from .capture import CapturePolicy
 from .dashboard import start_dashboard
 from .env import load_env_file
 from .openai_agents import AgentariumRunHooks, _short, observe_openai
@@ -31,6 +32,7 @@ def run_sync(
     show_dashboard: bool = True,
     dashboard_port: int | None = None,
     open_browser: bool = True,
+    capture_policy: CapturePolicy | None = None,
     **runner_options: Any,
 ) -> Any:
     """Run one OpenAI agent synchronously while recording Agentarium events.
@@ -46,7 +48,7 @@ def run_sync(
         )
 
     load_env_file()
-    recorder = EventRecorder(question or _question_from(input), event_path)
+    recorder = EventRecorder(question or _question_from(input), event_path, capture_policy=capture_policy)
     hooks = AgentariumRunHooks(recorder)
     hooks.set_activity(agent, input)
     if show_dashboard:
@@ -59,10 +61,16 @@ def run_sync(
     try:
         result = Runner.run_sync(agent, input, hooks=hooks, **runner_options)
     except BaseException as exc:
-        recorder.record_error(_short(exc), hooks.identify(agent))
-        recorder.finish(succeeded=False)
+        try:
+            recorder.record_error(_short(exc), hooks.identify(agent))
+            recorder.finish(succeeded=False)
+        except Exception as recording_error:
+            recorder._disable_recording(recording_error)
         raise
-    recorder.finish(succeeded=True)
+    try:
+        recorder.finish(succeeded=True)
+    except Exception as recording_error:
+        recorder._disable_recording(recording_error)
     return result
 
 
@@ -75,6 +83,7 @@ async def run(
     show_dashboard: bool = True,
     dashboard_port: int | None = None,
     open_browser: bool = True,
+    capture_policy: CapturePolicy | None = None,
     **runner_options: Any,
 ) -> Any:
     """Run one OpenAI agent asynchronously while recording Agentarium events.
@@ -97,5 +106,5 @@ async def run(
             port=dashboard_port,
             open_browser=open_browser,
         )
-    async with observe_openai(question or _question_from(input), event_path) as observed:
+    async with observe_openai(question or _question_from(input), event_path, capture_policy=capture_policy) as observed:
         return await observed.run(agent, input, **runner_options)
